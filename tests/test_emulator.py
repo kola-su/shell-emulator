@@ -77,5 +77,40 @@ class ShellTest(unittest.TestCase):
         self.assertIn("ls, cd", text)
 
 
+class ScriptTest(unittest.TestCase):
+    """Проверяет параметры запуска и стартовый скрипт."""
+
+    def test_comments_skipped(self):
+        """Пустые строки и строки-комментарии не выполняются."""
+        sign = emulator.COMMENT_SIGN
+        lines = [sign + " comment", "", "  ls  ", "   " + sign + " still"]
+        self.assertEqual(emulator.script_commands(lines), ["ls"])
+
+    def test_parse_args(self):
+        """--vfs и --script читаются, по умолчанию пустые."""
+        args = emulator.parse_args(["--vfs", "a.json", "--script", "s.txt"])
+        self.assertEqual((args.vfs, args.script), ("a.json", "s.txt"))
+        empty = emulator.parse_args([])
+        self.assertIsNone(empty.vfs)
+        self.assertIsNone(empty.script)
+
+    def test_script_dialog(self):
+        """В окне видны команды скрипта и их ответы, но не комментарии."""
+        gui = emulator.ShellGUI(emulator.Shell())
+        gui.run_script(str(ROOT / "scripts" / "startup.txt"))
+        text = gui.output.get("1.0", "end")
+        gui.root.destroy()
+        self.assertIn("неизвестная команда", text)
+        self.assertNotIn("эта строка не выполняется", text)
+
+    def test_missing_script(self):
+        """Отсутствующий скрипт даёт сообщение, а не падение."""
+        gui = emulator.ShellGUI(emulator.Shell())
+        gui.run_script(str(ROOT / "scripts" / "missing.txt"))
+        text = gui.output.get("1.0", "end")
+        gui.root.destroy()
+        self.assertIn("Ошибка скрипта", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 """Эмулятор UNIX-подобной командной оболочки. Вариант 9."""
 
+import argparse
 import os
 import shlex
 import socket
@@ -74,6 +75,22 @@ def stub(name, args):
     if args:
         return f"{name}: {' '.join(args)}"
     return name
+
+
+COMMENT_SIGN = chr(35)
+
+
+def script_commands(lines):
+    """Отбрасывает пустые строки и строки-комментарии стартового скрипта.
+
+    Комментарий начинается со знака COMMENT_SIGN, как в Python.
+    """
+    commands = []
+    for raw in lines:
+        line = raw.strip()
+        if line and not line.startswith(COMMENT_SIGN):
+            commands.append(line)
+    return commands
 
 
 class Shell:
@@ -177,13 +194,42 @@ class ShellGUI:
         if self.shell.running:
             self.show_prompt()
 
+    def run_script(self, path):
+        """Выполняет стартовый скрипт, показывая ввод и вывод."""
+        try:
+            with open(path, encoding="utf-8-sig") as handle:
+                lines = handle.read().splitlines()
+        except OSError as error:
+            self.print_text(f"Ошибка скрипта: {error}\n")
+            return
+        for line in script_commands(lines):
+            if not self.shell.running:
+                break
+            self.show_prompt()
+            self.run_line(line)
 
-def main():
-    """Создаёт оболочку и открывает окно."""
-    gui = ShellGUI(Shell())
+
+def parse_args(argv=None):
+    """Читает параметры командной строки --vfs и --script."""
+    parser = argparse.ArgumentParser(description="Эмулятор оболочки")
+    parser.add_argument("--vfs", help="путь к физическому расположению VFS")
+    parser.add_argument("--script", help="путь к стартовому скрипту")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    """Читает параметры, печатает отладку и открывает окно."""
+    args = parse_args(argv)
+    shell = Shell()
+    gui = ShellGUI(shell)
     gui.print_banner()
+    gui.print_text(f"[debug] Путь к VFS: {args.vfs or 'не задан'}\n")
+    gui.print_text(f"[debug] Стартовый скрипт: {args.script or 'не задан'}\n")
     gui.print_text("\n")
-    gui.show_prompt()
+    if args.script:
+        gui.run_script(args.script)
+    if shell.running:
+        gui.show_prompt()
     gui.root.mainloop()
 
 
