@@ -1,38 +1,33 @@
 # Комментарий: эта строка не выполняется
-# Стартовый скрипт этапа 4: ls, cd, tree, date и ошибки
+# Стартовый скрипт этапа 5: touch и cp меняют VFS только в памяти
 
-ls
+ls /tmp
+touch /tmp/a.txt /tmp/b.txt
+touch /tmp/a.txt
+touch -c /tmp/nope.txt
+ls -l /tmp
+touch /no/such.txt
+touch
+touch -z /tmp/a.txt
+
+cp /home/readme.txt /tmp/copy.txt
+cp /home/readme.txt /tmp
+cp /home /tmp/home_copy
+cp -r /home /tmp/home_copy
+tree /tmp
+cp /tmp/a.txt /tmp/b.txt /tmp/home_copy
+ls /tmp/home_copy
+cp -r /home /home/user
+cp /tmp/a.txt /tmp/a.txt
+cp /missing /tmp
+cp /tmp/a.txt
+cp -x /tmp/a.txt /tmp/z.txt
+cp /tmp/a.txt /tmp/b.txt /tmp/copy.txt
+
+# Команды прошлых этапов по-прежнему работают
+cd /tmp/home_copy/user
 ls -a
-ls -l
-ls -la /home
-ls /home /tmp
-ls /home/readme.txt
-ls /missing
-ls -x
-
-cd /home
-cd user
-cd ..
 cd -
-cd
-cd /home/readme.txt
-cd /no/such
-cd a b
-
-tree
-tree -a
-tree -L 1
-tree -L2 /home
-tree /missing
-tree -L x
-tree -Z
-
-date
-date -u
 date +%Y
-date -u +%H:%M
-date --bad
-
 foo
-ls "broken
 exit 1

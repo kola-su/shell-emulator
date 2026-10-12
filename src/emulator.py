@@ -237,6 +237,30 @@ def add_tree(lines, node, prefix, limit, show_all):
         add_tree(lines, child, child_prefix, limit - 1, show_all)
 
 
+def place(parent, node):
+    """Кладёт узел в каталог, заменяя одноимённый."""
+    node.parent = parent
+    parent.children[node.name] = node
+
+
+def clone(node, name):
+    """Возвращает независимую копию узла и всех его потомков."""
+    copy = Node(name, node.kind)
+    copy.content = node.content
+    for child in node.children.values():
+        place(copy, clone(child, child.name))
+    return copy
+
+
+def is_inside(node, ancestor):
+    """Возвращает True, если node совпадает с ancestor или лежит в нём."""
+    while node is not None:
+        if node is ancestor:
+            return True
+        node = node.parent
+    return False
+
+
 class Shell:
     """Состояние оболочки и выполнение команд."""
 
@@ -253,6 +277,8 @@ class Shell:
             "cd": self.cmd_cd,
             "tree": self.cmd_tree,
             "date": self.cmd_date,
+            "touch": self.cmd_touch,
+            "cp": self.cmd_cp,
             "exit": self.cmd_exit,
         }
 
@@ -375,6 +401,90 @@ class Shell:
             return now.strftime(fmt)
         except ValueError as error:
             return f"date: {error}"
+
+    def parent_and_name(self, path):
+        """Возвращает каталог-родитель и последнее имя пути."""
+        head, sep, name = path.rstrip("/").rpartition("/")
+        if name in ("", ".", ".."):
+            return None, name
+        if not sep:
+            return self.cwd, name
+        parent = self.resolve(head or "/")
+        if parent is None or not parent.is_dir():
+            return None, name
+        return parent, name
+
+    def cmd_touch(self, args):
+        """Создаёт пустые файлы в памяти; -c не создаёт новые."""
+        flags, paths = split_flags(args)
+        if flags.strip("c"):
+            return f"touch: неверный флаг: -{flags}"
+        if not paths:
+            return "touch: не указан файл"
+        errors = [self.touch_one(path, "c" in flags) for path in paths]
+        return "\n".join(error for error in errors if error)
+
+    def touch_one(self, path, no_create):
+        """Создаёт один пустой файл, если такого имени ещё нет."""
+        parent, name = self.parent_and_name(path)
+        if parent is None:
+            return f"touch: нельзя создать файл: {path}"
+        if name not in parent.children and not no_create:
+            place(parent, Node(name, FILE))
+        return ""
+
+    def find_source(self, path, recursive):
+        """Возвращает (узел, "") или (None, текст ошибки) для cp."""
+        source = self.resolve(path)
+        if source is None:
+            return None, f"cp: нет такого файла или каталога: {path}"
+        if source.is_dir() and not recursive:
+            return None, f"cp: {path}: каталог, укажите -r"
+        return source, ""
+
+    def cmd_cp(self, args):
+        """Копирует файлы, а с флагом -r и каталоги, внутри VFS."""
+        flags, paths = split_flags(args)
+        if flags.strip("r"):
+            return f"cp: неверный флаг: -{flags}"
+        if len(paths) < 2:
+            return "cp: недостаточно аргументов"
+        *sources, target = paths
+        recursive = "r" in flags
+        dest = self.resolve(target)
+        if dest is not None and dest.is_dir():
+            errors = [self.copy_into(s, dest, recursive) for s in sources]
+            return "\n".join(error for error in errors if error)
+        if len(sources) > 1:
+            return "cp: цель не является каталогом"
+        return self.copy_to(sources[0], target, recursive)
+
+    def copy_into(self, path, folder, recursive):
+        """Копирует источник внутрь существующего каталога."""
+        source, error = self.find_source(path, recursive)
+        if error:
+            return error
+        if is_inside(folder, source):
+            return "cp: нельзя копировать каталог в самого себя"
+        if folder.children.get(source.name) is source:
+            return "cp: нельзя копировать файл сам в себя"
+        place(folder, clone(source, source.name))
+        return ""
+
+    def copy_to(self, path, target, recursive):
+        """Копирует источник под новым именем target."""
+        source, error = self.find_source(path, recursive)
+        if error:
+            return error
+        parent, name = self.parent_and_name(target)
+        if parent is None:
+            return f"cp: нельзя создать: {target}"
+        if parent.children.get(name) is source:
+            return "cp: нельзя копировать файл сам в себя"
+        if is_inside(parent, source):
+            return "cp: нельзя копировать каталог в самого себя"
+        place(parent, clone(source, name))
+        return ""
 
 
 class ShellGUI:
