@@ -1,0 +1,33 @@
+{
+  "root": {
+    "type": "directory",
+    "children": [
+      {
+        "name": "readme.txt",
+        "type": "file",
+        "content": "hello"
+      },
+      {
+        "name": "notes.txt",
+        "type": "file",
+        "content": "notes"
+      },
+      {
+        "name": "docs",
+        "type": "directory",
+        "children": [
+          {
+            "name": "a.txt",
+            "type": "file",
+            "content": "A"
+          },
+          {
+            "name": "b.txt",
+            "type": "file",
+            "content": "B"
+          }
+        ]
+      }
+    ]
+  }
+}

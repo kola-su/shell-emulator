@@ -1,0 +1,51 @@
+{
+  "root": {
+    "type": "directory",
+    "children": [
+      {
+        "name": "home",
+        "type": "directory",
+        "children": [
+          {
+            "name": "user",
+            "type": "directory",
+            "children": [
+              {
+                "name": "projects",
+                "type": "directory",
+                "children": [
+                  {
+                    "name": "lab.txt",
+                    "type": "file",
+                    "content": "lab"
+                  }
+                ]
+              },
+              {
+                "name": "photo.bin",
+                "type": "file",
+                "encoding": "base64",
+                "content": "aGVsbG8="
+              }
+            ]
+          },
+          {
+            "name": "readme.txt",
+            "type": "file",
+            "content": "home readme"
+          }
+        ]
+      },
+      {
+        "name": "tmp",
+        "type": "directory",
+        "children": []
+      },
+      {
+        "name": ".hidden",
+        "type": "file",
+        "content": "secret"
+      }
+    ]
+  }
+}

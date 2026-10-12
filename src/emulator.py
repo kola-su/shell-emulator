@@ -1,11 +1,16 @@
 """Эмулятор UNIX-подобной командной оболочки. Вариант 9."""
 
 import argparse
+import base64
+import json
 import os
 import shlex
 import socket
 import tkinter as tk
 from tkinter import scrolledtext
+
+DIR = "directory"
+FILE = "file"
 
 
 def get_username():
@@ -93,14 +98,91 @@ def script_commands(lines):
     return commands
 
 
+class Node:
+    """Файл или каталог виртуальной файловой системы в памяти."""
+
+    def __init__(self, name, kind):
+        """Создаёт узел без содержимого и без родителя."""
+        self.name = name
+        self.kind = kind
+        self.content = b""
+        self.children = {}
+        self.parent = None
+
+    def is_dir(self):
+        """Возвращает True, если узел является каталогом."""
+        return self.kind == DIR
+
+
+def path_of(node):
+    """Возвращает абсолютный путь узла, например /home/user."""
+    names = []
+    while node.parent is not None:
+        names.append(node.name)
+        node = node.parent
+    return "/" + "/".join(reversed(names))
+
+
+def read_content(data):
+    """Возвращает байты файла: текст UTF-8 или данные base64."""
+    raw = data.get("content", "")
+    if data.get("encoding") == "base64":
+        return base64.b64decode(raw)
+    return raw.encode("utf-8")
+
+
+def build_node(name, data):
+    """Строит узел и всех его потомков из словаря JSON."""
+    node = Node(name, data.get("type", DIR))
+    if node.kind == FILE:
+        node.content = read_content(data)
+        return node
+    for item in data.get("children", []):
+        child = build_node(item["name"], item)
+        child.parent = node
+        node.children[child.name] = child
+    return node
+
+
+def count_nodes(node):
+    """Считает узлы дерева вместе с корнем."""
+    return 1 + sum(count_nodes(child) for child in node.children.values())
+
+
+def tree_depth(node):
+    """Возвращает глубину дерева; у одного корня она равна 1."""
+    if not node.children:
+        return 1
+    return 1 + max(tree_depth(child) for child in node.children.values())
+
+
+def load_vfs(path):
+    """Читает JSON в память и возвращает (корень, отладочная строка).
+
+    Файл на диске только читается и никогда не изменяется.
+    """
+    if not path:
+        return Node("", DIR), "VFS в памяти: пустой корень"
+    try:
+        with open(path, encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+        root = build_node("", data["root"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return Node("", DIR), f"Ошибка загрузки VFS: {error}"
+    count, depth = count_nodes(root), tree_depth(root)
+    return root, f"VFS в памяти: узлов={count}, глубина={depth}"
+
+
 class Shell:
     """Состояние оболочки и выполнение команд."""
 
-    def __init__(self):
-        """Запоминает пользователя, компьютер и список команд."""
+    def __init__(self, root=None):
+        """Запоминает пользователя, компьютер, корень VFS и команды."""
         self.username = get_username()
         self.hostname = socket.gethostname()
         self.running = True
+        self.root = root if root is not None else Node("", DIR)
+        self.cwd = self.root
         self.commands = {
             "ls": self.cmd_ls,
             "cd": self.cmd_cd,
@@ -113,7 +195,8 @@ class Shell:
 
     def prompt(self):
         """Возвращает приглашение командной строки."""
-        return f"{self.username}@{self.hostname}$ "
+        path = path_of(self.cwd)
+        return f"{self.username}@{self.hostname}:{path}$ "
 
     def execute(self, line):
         """Выполняет одну строку и возвращает текст ответа."""
@@ -220,11 +303,13 @@ def parse_args(argv=None):
 def main(argv=None):
     """Читает параметры, печатает отладку и открывает окно."""
     args = parse_args(argv)
-    shell = Shell()
+    root, note = load_vfs(args.vfs)
+    shell = Shell(root)
     gui = ShellGUI(shell)
     gui.print_banner()
     gui.print_text(f"[debug] Путь к VFS: {args.vfs or 'не задан'}\n")
     gui.print_text(f"[debug] Стартовый скрипт: {args.script or 'не задан'}\n")
+    gui.print_text(f"[debug] {note}\n")
     gui.print_text("\n")
     if args.script:
         gui.run_script(args.script)

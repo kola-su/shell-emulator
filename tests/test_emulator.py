@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+VFS = ROOT / "vfs"
 sys.path.insert(0, str(ROOT / "src"))
 emulator = importlib.import_module("emulator")
 
@@ -110,6 +111,43 @@ class ScriptTest(unittest.TestCase):
         text = gui.output.get("1.0", "end")
         gui.root.destroy()
         self.assertIn("Ошибка скрипта", text)
+
+
+class VfsTest(unittest.TestCase):
+    """Проверяет загрузку JSON в память."""
+
+    def test_minimal(self):
+        """Минимальная VFS — пустой корневой каталог."""
+        root, note = emulator.load_vfs(str(VFS / "minimal.json"))
+        self.assertEqual(root.children, {})
+        self.assertIn("узлов=1", note)
+
+    def test_files(self):
+        """Несколько файлов читаются вместе с содержимым."""
+        root, _note = emulator.load_vfs(str(VFS / "files.json"))
+        self.assertIn("readme.txt", root.children)
+        docs = root.children["docs"]
+        self.assertEqual(docs.children["a.txt"].content, b"A")
+
+    def test_deep_and_base64(self):
+        """Три и более уровня вложенности, файл в base64."""
+        root, _note = emulator.load_vfs(str(VFS / "deep.json"))
+        self.assertGreaterEqual(emulator.tree_depth(root), 4)
+        user = root.children["home"].children["user"]
+        self.assertEqual(user.children["photo.bin"].content, b"hello")
+
+    def test_bad_files(self):
+        """Битый и отсутствующий JSON дают ошибку и пустой корень."""
+        for name in ("broken.json", "missing.json"):
+            root, note = emulator.load_vfs(str(VFS / name))
+            self.assertIn("Ошибка загрузки VFS", note)
+            self.assertEqual(root.children, {})
+
+    def test_prompt_shows_path(self):
+        """Приглашение содержит текущий каталог VFS."""
+        root, _note = emulator.load_vfs(str(VFS / "deep.json"))
+        shell = emulator.Shell(root)
+        self.assertTrue(shell.prompt().endswith(":/$ "))
 
 
 if __name__ == "__main__":
