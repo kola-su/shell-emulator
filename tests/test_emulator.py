@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -59,13 +60,6 @@ class ShellTest(unittest.TestCase):
         """exit без аргументов останавливает оболочку."""
         self.assertEqual(self.shell.execute("exit"), "Выход из эмулятора.")
         self.assertFalse(self.shell.running)
-
-    def test_stubs(self):
-        """ls и cd печатают своё имя и аргументы."""
-        cmd = self.shell.execute
-        self.assertEqual(cmd("ls"), "ls")
-        self.assertEqual(cmd('ls "my dir" b'), "ls: my dir b")
-        self.assertEqual(cmd("cd /home"), "cd: /home")
 
     def test_window(self):
         """Окно открывается с заголовком ОС и списком команд."""
@@ -148,6 +142,53 @@ class VfsTest(unittest.TestCase):
         root, _note = emulator.load_vfs(str(VFS / "deep.json"))
         shell = emulator.Shell(root)
         self.assertTrue(shell.prompt().endswith(":/$ "))
+
+
+class CommandTest(unittest.TestCase):
+    """Проверяет ls, cd, tree и date на глубокой VFS."""
+
+    def setUp(self):
+        """Загружает deep.json в память."""
+        root, _note = emulator.load_vfs(str(VFS / "deep.json"))
+        self.shell = emulator.Shell(root)
+        self.cmd = self.shell.execute
+
+    def test_ls(self):
+        """ls скрывает имена на точку, -a их показывает, -l подробно."""
+        self.assertEqual(self.cmd("ls"), "home  tmp")
+        self.assertIn(".hidden", self.cmd("ls -a").split())
+        self.assertIn("-       11 readme.txt", self.cmd("ls -l /home"))
+        self.assertIn("неверный флаг", self.cmd("ls -x"))
+        self.assertIn("нет такого файла", self.cmd("ls /missing"))
+
+    def test_cd(self):
+        """cd меняет каталог, cd - возвращает назад."""
+        self.assertEqual(self.cmd("cd /home/user"), "")
+        self.assertTrue(self.shell.prompt().endswith(":/home/user$ "))
+        self.assertEqual(self.cmd("cd .."), "")
+        self.assertEqual(self.cmd("cd -"), "/home/user")
+        self.assertIn("не каталог", self.cmd("cd /home/readme.txt"))
+        self.assertIn("нет такого файла", self.cmd("cd /no"))
+        self.assertIn("слишком много", self.cmd("cd a b"))
+
+    def test_tree(self):
+        """tree ограничивает глубину и по -a показывает скрытое."""
+        shallow = self.cmd("tree -L 1")
+        self.assertIn("home", shallow)
+        self.assertNotIn("user", shallow)
+        self.assertNotIn(".hidden", shallow)
+        self.assertIn(".hidden", self.cmd("tree -a -L1"))
+        self.assertIn("projects", self.cmd("tree /home"))
+        self.assertIn("нужно число", self.cmd("tree -L x"))
+        self.assertIn("неверный флаг", self.cmd("tree -Z"))
+
+    def test_date(self):
+        """date печатает время ОС, UTC и свой формат."""
+        full = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+        self.assertTrue(re.match(full, self.cmd("date")))
+        self.assertTrue(re.match(full, self.cmd("date -u")))
+        self.assertTrue(re.match(r"^\d{4}$", self.cmd("date +%Y")))
+        self.assertIn("неверный аргумент", self.cmd("date --bad"))
 
 
 if __name__ == "__main__":

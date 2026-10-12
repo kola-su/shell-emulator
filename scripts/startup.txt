@@ -1,12 +1,38 @@
 # Комментарий: эта строка не выполняется
-# Стартовый скрипт этапа 3: VFS загружена в память,
-# приглашение показывает каталог /. ls и cd пока заглушки.
+# Стартовый скрипт этапа 4: ls, cd, tree, date и ошибки
 
 ls
-ls /home/user
-cd /home "my dir"
-cd $HOME
-ls '$HOME'
+ls -a
+ls -l
+ls -la /home
+ls /home /tmp
+ls /home/readme.txt
+ls /missing
+ls -x
+
+cd /home
+cd user
+cd ..
+cd -
+cd
+cd /home/readme.txt
+cd /no/such
+cd a b
+
+tree
+tree -a
+tree -L 1
+tree -L2 /home
+tree /missing
+tree -L x
+tree -Z
+
+date
+date -u
+date +%Y
+date -u +%H:%M
+date --bad
+
 foo
 ls "broken
 exit 1

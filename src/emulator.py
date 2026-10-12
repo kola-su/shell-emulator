@@ -7,6 +7,7 @@ import os
 import shlex
 import socket
 import tkinter as tk
+from datetime import datetime, timezone
 from tkinter import scrolledtext
 
 DIR = "directory"
@@ -73,13 +74,6 @@ def expand_vars(line):
 def parse_line(line):
     """Разбивает строку на аргументы с учётом кавычек и переменных."""
     return shlex.split(expand_vars(line))
-
-
-def stub(name, args):
-    """Ответ команды-заглушки: её имя и переданные аргументы."""
-    if args:
-        return f"{name}: {' '.join(args)}"
-    return name
 
 
 COMMENT_SIGN = chr(35)
@@ -173,6 +167,76 @@ def load_vfs(path):
     return root, f"VFS в памяти: узлов={count}, глубина={depth}"
 
 
+def split_flags(args):
+    """Отделяет короткие флаги вида -al от остальных аргументов."""
+    flags = ""
+    rest = []
+    for arg in args:
+        if arg.startswith("-") and len(arg) > 1:
+            flags += arg[1:]
+        else:
+            rest.append(arg)
+    return flags, rest
+
+
+def entries(node, show_all):
+    """Возвращает пары (имя, узел) каталога; при -a добавляет . и .."""
+    rows = []
+    if show_all:
+        rows = [(".", node), ("..", node.parent or node)]
+    for name in sorted(node.children):
+        if show_all or not name.startswith("."):
+            rows.append((name, node.children[name]))
+    return rows
+
+
+def long_row(name, node):
+    """Строка подробного формата ls -l: тип, размер и имя."""
+    if node.is_dir():
+        return f"d {len(node.children):8d} {name}"
+    return f"- {len(node.content):8d} {name}"
+
+
+def to_depth(text):
+    """Переводит значение флага -L в число."""
+    if not text.isdigit():
+        raise ValueError("после -L нужно число")
+    return int(text)
+
+
+def parse_tree_args(args):
+    """Разбирает флаги tree: -a, -L N, -LN и путь."""
+    show_all = False
+    limit = 32
+    paths = []
+    items = iter(args)
+    for arg in items:
+        if arg == "-a":
+            show_all = True
+        elif arg == "-L":
+            limit = to_depth(next(items, ""))
+        elif arg.startswith("-L"):
+            limit = to_depth(arg[2:])
+        elif arg.startswith("-"):
+            raise ValueError(f"неверный флаг: {arg}")
+        else:
+            paths.append(arg)
+    return show_all, limit, paths
+
+
+def add_tree(lines, node, prefix, limit, show_all):
+    """Добавляет в lines ветви дерева не глубже limit уровней."""
+    if not node.is_dir() or limit < 1:
+        return
+    names = [n for n in sorted(node.children) if show_all or n[0] != "."]
+    for index, name in enumerate(names):
+        last = index == len(names) - 1
+        lines.append(prefix + ("└── " if last else "├── ") + name)
+        child = node.children[name]
+        child_prefix = prefix + ("    " if last else "│   ")
+        add_tree(lines, child, child_prefix, limit - 1, show_all)
+
+
 class Shell:
     """Состояние оболочки и выполнение команд."""
 
@@ -183,9 +247,12 @@ class Shell:
         self.running = True
         self.root = root if root is not None else Node("", DIR)
         self.cwd = self.root
+        self.previous = None
         self.commands = {
             "ls": self.cmd_ls,
             "cd": self.cmd_cd,
+            "tree": self.cmd_tree,
+            "date": self.cmd_date,
             "exit": self.cmd_exit,
         }
 
@@ -218,13 +285,96 @@ class Shell:
         self.running = False
         return "Выход из эмулятора."
 
+    def resolve(self, path):
+        """Находит узел по абсолютному или относительному пути."""
+        node = self.root if path.startswith("/") else self.cwd
+        for part in path.split("/"):
+            if part in ("", "."):
+                continue
+            if part == "..":
+                node = node.parent or node
+            elif node.is_dir() and part in node.children:
+                node = node.children[part]
+            else:
+                return None
+        return node
+
     def cmd_ls(self, args):
-        """Заглушка ls: печатает имя команды и аргументы."""
-        return stub("ls", args)
+        """Печатает содержимое каталогов; -a скрытые, -l подробно."""
+        flags, paths = split_flags(args)
+        bad = [flag for flag in flags if flag not in "al"]
+        if bad:
+            return f"ls: неверный флаг: -{bad[0]}"
+        blocks = []
+        for path in paths or [path_of(self.cwd)]:
+            if len(paths) > 1:
+                blocks.append(path + ":")
+            blocks.append(self.list_one(path, flags))
+        return "\n".join(block for block in blocks if block)
+
+    def list_one(self, path, flags):
+        """Возвращает содержимое одного каталога или имя файла."""
+        node = self.resolve(path)
+        if node is None:
+            return f"ls: нет такого файла или каталога: {path}"
+        if node.is_dir():
+            rows = entries(node, "a" in flags)
+        else:
+            rows = [(node.name, node)]
+        if "l" in flags:
+            return "\n".join(long_row(name, item) for name, item in rows)
+        return "  ".join(name for name, _item in rows)
 
     def cmd_cd(self, args):
-        """Заглушка cd: печатает имя команды и аргументы."""
-        return stub("cd", args)
+        """Меняет текущий каталог; cd - возвращает предыдущий."""
+        if len(args) > 1:
+            return "cd: слишком много аргументов"
+        if args and args[0] == "-":
+            if self.previous is None:
+                return "cd: нет предыдущего каталога"
+            self.cwd, self.previous = self.previous, self.cwd
+            return path_of(self.cwd)
+        target = args[0] if args else "/"
+        node = self.resolve(target)
+        if node is None:
+            return f"cd: нет такого файла или каталога: {target}"
+        if not node.is_dir():
+            return f"cd: не каталог: {target}"
+        self.previous, self.cwd = self.cwd, node
+        return ""
+
+    def cmd_tree(self, args):
+        """Печатает дерево каталогов; -a скрытые, -L глубина."""
+        try:
+            show_all, limit, paths = parse_tree_args(args)
+        except ValueError as error:
+            return f"tree: {error}"
+        if len(paths) > 1:
+            return "tree: слишком много аргументов"
+        target = paths[0] if paths else path_of(self.cwd)
+        node = self.resolve(target)
+        if node is None:
+            return f"tree: нет такого файла или каталога: {target}"
+        lines = [path_of(node)]
+        add_tree(lines, node, "", limit, show_all)
+        return "\n".join(lines)
+
+    def cmd_date(self, args):
+        """Печатает дату и время ОС; -u в UTC, +ФОРМАТ как strftime."""
+        utc = False
+        fmt = "%Y-%m-%d %H:%M:%S"
+        for arg in args:
+            if arg == "-u":
+                utc = True
+            elif arg.startswith("+"):
+                fmt = arg[1:]
+            else:
+                return f"date: неверный аргумент: {arg}"
+        now = datetime.now(timezone.utc) if utc else datetime.now()
+        try:
+            return now.strftime(fmt)
+        except ValueError as error:
+            return f"date: {error}"
 
 
 class ShellGUI:
