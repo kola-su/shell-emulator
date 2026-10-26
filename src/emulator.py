@@ -12,7 +12,6 @@ from tkinter import scrolledtext
 
 DIR = "directory"
 FILE = "file"
-# cp требует хотя бы один источник и цель.
 MIN_CP_ARGS = 2
 
 
