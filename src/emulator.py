@@ -12,6 +12,8 @@ from tkinter import scrolledtext
 
 DIR = "directory"
 FILE = "file"
+# cp требует хотя бы один источник и цель.
+MIN_CP_ARGS = 2
 
 
 def get_username():
@@ -447,7 +449,7 @@ class Shell:
         flags, paths = split_flags(args)
         if flags.strip("r"):
             return f"cp: неверный флаг: -{flags}"
-        if len(paths) < 2:
+        if len(paths) < MIN_CP_ARGS:
             return "cp: недостаточно аргументов"
         *sources, target = paths
         recursive = "r" in flags
